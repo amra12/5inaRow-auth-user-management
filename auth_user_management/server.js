@@ -1,16 +1,20 @@
-var express     = require('express');
-var app         = express();
-var bodyParser  = require('body-parser');
-var morgan      = require('morgan');
-var mongoose    = require('mongoose');
-var passport	  = require('passport');
-var config      = require('./config/database'); // get db config file
-var User        = require('./app/models/user'); // get the mongoose model
-var port 	      = process.env.PORT || 8080;
-var jwt 			  = require('jwt-simple');
+var express = require('express');
+var app = express();
+var bodyParser = require('body-parser');
+var morgan = require('morgan');
+var mongoose = require('mongoose');
+var passport = require('passport');
+var config = require('./config/database'); // get db config file
+var User = require('./app/models/user'); // get the mongoose model
+var port = process.env.PORT || 4200;
 
+var jwt2 = require('jsonwebtoken');
+
+var flash = require('connect-flash')
+var destroy = require('destroy')
+var Q = require("q");
 // get the request parameters
-app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.urlencoded({extended: false}));
 app.use(bodyParser.json());
 
 // log to the console
@@ -19,8 +23,8 @@ app.use(morgan('dev'));
 // Use the passport package in our application
 app.use(passport.initialize());
 
-//  Route (GET http://localhost:8080)
-app.get('/', function(req, res) {
+//  Route (GET http://localhost:4200)
+app.get('/', function (req, res) {
   res.send(' The API is at http://localhost:' + port + '/api');
 });
 
@@ -32,78 +36,87 @@ require('./config/passport')(passport);
 
 // bundle FOR MY API ROOT 
 var apiRoutes = express.Router();
-
-// create a new user account (POST http://localhost:8080/api/signup)
-apiRoutes.post('/signup', function(req, res) {
+// create a new user account (POST http://localhost:4200/api/signup)
+apiRoutes.post('/signup', function (req, res) {
   if (!req.body.name || !req.body.password) {
-    res.json({success: false, msg: 'Please pass name and password.'});
-    
+    res.status(400).json({success: false, msg: 'Please pass name and password.'});
+
   } else {
-    // var token = jwt.encode(user, config.secret);
     var newUser = new User({
       name: req.body.name,
-      password: req.body.password
-      //,token: jwt.encode(newUser, config.secret)
+      password: req.body.password,
+      status: 'online'
     });
     // save the user
     console.log('create new user: ' + newUser);
-    newUser.save(function(err) {
+
+    newUser.save(function (err) {
       if (err) {
-        res.json({success: false, msg: 'Username already exists.  ' });
-        throw err;
+        res.status(409).json({success: false, msg: 'Username already exists'});
       }
-      res.json({success: true, msg: 'Successful created new user.' });
+      res.status(201).json({success: true, msg: 'Successful created new user.'});
     });
   }
 });
 
-// route to log in a user (POST http://localhost:8080/api/login)
-apiRoutes.post('/login', function(req, res) {
+// route to log in a user (POST http://localhost:4200/api/login)
+apiRoutes.post('/login', function (req, res) {
   User.findOne({
     name: req.body.name
-  }, function(err, user) {
+  }, function (err, user) {
     if (err) throw err;
 
     if (!user) {
-      return res.status(403).send({success: false, msg: 'Log in failed. User not found.'});
+      return res.status(403).json({success: false, msg: 'Log in failed. User not found.'});
     } else {
       // check if password matches
       user.comparePassword(req.body.password, function (err, isMatch) {
         if (isMatch && !err) {
           // if user is found and password is right create a token
-          var token = jwt.encode(user, config.secret);
+          var token = jwt2.sign(user, config.secret, {
+            expiresIn: 2000
+          });
           // return the information including token as JSON
-          res.json({success: true, token: 'JWT ' + token});
+          res.status(200).json({success: true, token: 'JWT ' + token});
+          User.update({name: req.body.name}, {
+            name: req.body.name,
+            status: 'online'
+          }, function (err, numberAffected, rawResponse) {
+            console.log(err)
+          })
         } else {
-          return res.status(403).send({success: false, msg: 'Log in failed. Wrong password.'});
+          return res.status(401).json({success: false, msg: 'Log in failed. Wrong password.'});
         }
       });
     }
   });
 });
 
-// route to a restricted info (GET http://localhost:8080/api/checktoken)
-apiRoutes.get('/checktoken', passport.authenticate('jwt', { session: false}), function(req, res) {
+// route to a restricted info (GET http://localhost:4200/api/checktoken)
+apiRoutes.get('/checktoken', passport.authenticate('jwt', {session: false}), function (req, res) {
   var token = getToken(req.headers);
-  console.log('the token: ' + token);
-  if (token) {
-    var decodedUser = jwt.decode(token, config.secret); // we get the information of the user by decoding his token
-    User.findOne({
-      name: decodedUser.name 
-    }, function(err, user) {
-        if (err) throw err;
 
-        if (!user) {
-          return res.status(403).send({success: false, msg: 'Log in failed. User not found.'});
+  if (token) {
+    jwt2.verify(token, config.secret, function (err, decoded) {
+      if (err) return res.status(489).send({success: false, msg: 'invalid token'});
+      else {
+        var userName = ''
+
+        if (!decoded._doc) {
+          userName = decoded.name
         } else {
-          res.json({success: true, msg: 'Welcome in the game area ' + user.name + '!'});
-          //send the username to API part
+          userName = decoded._doc.name;
         }
+        res.status(200).json({success: true, msg: userName});
+      }
     });
-  } else {
-    return res.status(403).send({success: false, msg: 'No token provided.'});
   }
+  else {
+    return res.status(499).send({success: false, msg: 'No token provided.'});
+  }
+
 });
+
 //the function for getting the token
 getToken = function (headers) {
   if (headers && headers.authorization) {
@@ -117,6 +130,111 @@ getToken = function (headers) {
     return null;
   }
 };
+
+var listOfUsers = [];
+
+apiRoutes.post('/search', function (req, res) {
+  var firstPlayer = req.body.firstPlayer;
+
+  User.findOneAndUpdate({
+    name: firstPlayer
+  }, {$set: {status: "searching for game"}}, function (err, user) {
+    if (err) {
+      return res.status(502).send({success: false, error: err});
+    } else {
+      promiseWhile(function () {
+        return Date.now() - currentTime < 6000 && listOfUsers.length < 1;
+      }, function () {
+        setTimeout(findUser, 2000);
+        return Q.delay(500);
+      }).then(function () {
+        if (!(listOfUsers.length >= 1)) {
+          return res.status(408).json({success: false, msg: 'Request timeout.'});
+        }
+        else {
+
+          var secondPlayer = listOfUsers[0].name
+          User.findOneAndUpdate({
+            name: secondPlayer
+          }, {$set: {status: "playing"}}, function (err, user) {
+            if (err) throw err;
+            else {
+              User.findOneAndUpdate({
+                name: firstPlayer
+              }, {$set: {status: "playing"}}, function (err, user) {
+                if (err) console.log(err);
+                else {
+                  return res.status(200).json({success: true, player1: firstPlayer, player2: secondPlayer});
+                }
+              });
+            }
+          });
+        }
+      }).done();
+    }
+  });
+  const currentTime = Date.now();
+  var checkingTime;
+
+});
+
+function findUser() {
+
+  User.find({
+    status: 'searching for game'
+  }, function (err, users) {
+    if (err) {
+      res.status(502).json({success: false, msg: err})
+    }
+    listOfUsers = users;
+    if (!users) {
+      return res.status(204).json({success: false, msg: 'no other user found'});
+    }
+  });
+
+}
+
+
+// Logout endpoint
+function promiseWhile(condition, body) {
+  var done = Q.defer();
+
+  function loop() {
+    // When the result of calling `condition` is no longer true, we are
+    // done.
+    if (!condition()) return done.resolve();
+    // Use `when`, in case `body` does not return a promise.
+    // When it completes loop again otherwise, if it fails, reject the
+    // done promise
+    Q.when(body(), loop, done.reject);
+  }
+
+  // Start running the loop in the next tick so that this function is
+  // completely async. It would be unexpected if `body` was called
+  // synchronously the first time.
+  Q.nextTick(loop);
+
+  // The promise
+  return done.promise;
+}
+
+apiRoutes.get('/logout/:name', function (req, res) {
+
+  var name = req.params.name;
+
+  User.findOneAndUpdate({
+    name: name
+  }, {$set: {status: "offline"}}, function (err, user) {
+    if (err) res.status(502).json({success: false, msg: err.message})
+    else {
+      return res.status(200).json({success: true, msg: 'player has been signed out successfully'});
+    }
+  });
+});
+
+// Usage
+var index = 1;
+
 
 // connect the api routes under /api/*
 app.use('/api', apiRoutes);

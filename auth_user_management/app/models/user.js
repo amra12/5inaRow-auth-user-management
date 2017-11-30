@@ -14,11 +14,11 @@ var UserSchema = new Schema({
         type: String,
         required: true
     },
-    // token:
-    // {
-    //     type: String,
-    //     required: true
-    // }
+    status:
+    {
+        type: String,
+         required: true
+     },
 
 });
 
@@ -50,5 +50,6 @@ UserSchema.methods.comparePassword = function (passw, cb) {
         cb(null, isMatch);
     });
 };
+
 
 module.exports = mongoose.model('User', UserSchema);
