@@ -14,5 +14,5 @@ npm install
 ````
 ### running the service
 ````
-node index.js
+node server.js
 ````
