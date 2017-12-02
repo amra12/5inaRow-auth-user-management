@@ -9,10 +9,12 @@ HOW TO INSTALL NODE JS AND HOW TO RUN MY SERVICE:
 2- install npm  : https://www.npmjs.com/get-npm
 
 3-install the required dependencies in the directory of the project
-````
+
+
 npm install
-````
-### running the service
+
+Running the service:
 ````
 node server.js
+
 ````
