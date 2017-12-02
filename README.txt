@@ -6,7 +6,7 @@ HOW TO INSTALL NODE JS AND HOW TO RUN MY SERVICE:
 
 1- install node for mac , linux , windows , docker : https://nodejs.org/en/download/ 
 
-2- install npm  : https://www.npmjs.com/get-npm
+2- install npm  : https://www.npmjs.com/get-npm
 
 3-install the required dependencies in the directory of the project
 ````
@@ -14,5 +14,5 @@ npm install
 ````
 ### running the service
 ````
-node server.js
+node index.js
 ````
