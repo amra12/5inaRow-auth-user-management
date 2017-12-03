@@ -45,7 +45,7 @@ apiRoutes.post('/signup', function (req, res) {
     var newUser = new User({
       name: req.body.name,
       password: req.body.password,
-      status: 'online'
+      status: 'nothing'
     });
     // save the user
     console.log('create new user: ' + newUser);
@@ -54,7 +54,9 @@ apiRoutes.post('/signup', function (req, res) {
       if (err) {
         res.status(409).json({success: false, msg: 'Username already exists'});
       }
-      res.status(201).json({success: true, msg: 'Successful created new user.'});
+      else {
+        res.status(201).json({success: true, msg: 'Successful created new user.'});
+      }
     });
   }
 });
@@ -64,7 +66,7 @@ apiRoutes.post('/login', function (req, res) {
   User.findOne({
     name: req.body.name
   }, function (err, user) {
-    if (err) throw err;
+    if (err) res.status(502).json({success: false, msg: err.message})
 
     if (!user) {
       return res.status(403).json({success: false, msg: 'Log in failed. User not found.'});
@@ -78,12 +80,6 @@ apiRoutes.post('/login', function (req, res) {
           });
           // return the information including token as JSON
           res.status(200).json({success: true, token: 'JWT ' + token});
-          User.update({name: req.body.name}, {
-            name: req.body.name,
-            status: 'online'
-          }, function (err, numberAffected, rawResponse) {
-            console.log(err)
-          })
         } else {
           return res.status(401).json({success: false, msg: 'Log in failed. Wrong password.'});
         }
@@ -98,7 +94,9 @@ apiRoutes.get('/checktoken', passport.authenticate('jwt', {session: false}), fun
 
   if (token) {
     jwt2.verify(token, config.secret, function (err, decoded) {
-      if (err) return res.status(489).send({success: false, msg: 'invalid token'});
+      if (err) {
+        res.status(489).send({success: false, msg: 'invalid token'});
+      }
       else {
         var userName = ''
 
@@ -132,37 +130,37 @@ getToken = function (headers) {
 };
 
 var listOfUsers = [];
-
+var allUsers = []
 apiRoutes.post('/search', function (req, res) {
+  listOfUsers = []
   var firstPlayer = req.body.firstPlayer;
 
-  User.findOneAndUpdate({
-    name: firstPlayer
-  }, {$set: {status: "searching for game"}}, function (err, user) {
+  changeStatus(firstPlayer, 'searching for game', function (err, user) {
     if (err) {
       return res.status(502).send({success: false, error: err});
     } else {
       promiseWhile(function () {
-        return Date.now() - currentTime < 6000 && listOfUsers.length < 1;
+        return Date.now() - currentTime < 6000 && listOfUsers.length == 0;
       }, function () {
-        setTimeout(findUser, 2000);
+        setTimeout(findUser, 2000, firstPlayer);
         return Q.delay(500);
       }).then(function () {
-        if (!(listOfUsers.length >= 1)) {
-          return res.status(408).json({success: false, msg: 'Request timeout.'});
+        if ((listOfUsers.length == 0)) {
+          changeStatus(firstPlayer, 'nothing', function (err, user) {
+            if (err) res.status(502).json({success: false, msg: err.message})
+            else {
+              return res.status(408).json({success: false, msg: 'Request timeout.'});
+            }
+          });
         }
         else {
-
+          cleanUsers(firstPlayer, allUsers)
           var secondPlayer = listOfUsers[0].name
-          User.findOneAndUpdate({
-            name: secondPlayer
-          }, {$set: {status: "playing"}}, function (err, user) {
-            if (err) throw err;
+          changeStatus(firstPlayer, 'playing', function (err, user) {
+            if (err) res.status(502).json({success: false, msg: err.message})
             else {
-              User.findOneAndUpdate({
-                name: firstPlayer
-              }, {$set: {status: "playing"}}, function (err, user) {
-                if (err) console.log(err);
+              changeStatus(secondPlayer, 'playing', function (err, user) {
+                if (err) res.status(502).json({success: false, msg: err.message})
                 else {
                   return res.status(200).json({success: true, player1: firstPlayer, player2: secondPlayer});
                 }
@@ -178,22 +176,26 @@ apiRoutes.post('/search', function (req, res) {
 
 });
 
-function findUser() {
+function findUser(firstPlayer) {
 
   User.find({
     status: 'searching for game'
   }, function (err, users) {
-    if (err) {
-      res.status(502).json({success: false, msg: err})
-    }
-    listOfUsers = users;
-    if (!users) {
-      return res.status(204).json({success: false, msg: 'no other user found'});
-    }
+    allUsers = users
+    cleanUsers(firstPlayer, users)
   });
 
 }
 
+function cleanUsers(firstPlayer, users) {
+  listOfUsers = []
+  for (var i = 0; i < users.length; i++) {
+    if (firstPlayer != users[i].name && users[i].status != 'playing') {
+      listOfUsers.push(users[i]);
+    }
+  }
+
+}
 
 // Logout endpoint
 function promiseWhile(condition, body) {
@@ -222,21 +224,48 @@ apiRoutes.get('/logout/:name', function (req, res) {
 
   var name = req.params.name;
 
-  User.findOneAndUpdate({
-    name: name
-  }, {$set: {status: "offline"}}, function (err, user) {
-    if (err) res.status(502).json({success: false, msg: err.message})
-    else {
-      return res.status(200).json({success: true, msg: 'player has been signed out successfully'});
-    }
+  // changeStatus(name, 'offline', function (err, user) {
+  //   if (err) res.status(502).json({success: false, msg: err.message})
+  //   else {
+  //     return res.status(200).json({success: true, msg: 'player has been signed out successfully'});
+  //   }
+  // });
+});
+
+apiRoutes.post('/changestatus', function (req, res) {
+
+  var firstPlayer = req.body.firstPlayer
+  var secondPlayer = req.body.secondPlayer
+  var status = req.body.status
+
+  changeStatus(firstPlayer, status, function (err, user) {
+    if (err || !user) res.status(502).json({success: false, msg: 'no user found'})
+
+    changeStatus(secondPlayer, status, function (err, user) {
+      if (err || !user) res.status(502).json({success: false, msg: err.message})
+      else {
+        return res.status(200).json({success: true, msg: 'status has been changed'});
+      }
+    });
   });
 });
 
-// Usage
-var index = 1;
+function checkStatus(player, callback) {
 
+  User.find({
+    name: player
+  }, callback);
+}
 
-// connect the api routes under /api/*
+function changeStatus(name, status, callback) {
+
+  User.findOneAndUpdate({
+    name: name
+  }, {$set: {status: status}}, callback);
+
+}
+
+// connect the api routes under /api
 app.use('/api', apiRoutes);
 
 // Start the server
