@@ -1,4 +1,5 @@
 #!/bin/bash
 
-mongod
+cd auth_user_management
+
 node server.js

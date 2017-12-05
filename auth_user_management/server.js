@@ -131,6 +131,7 @@ getToken = function (headers) {
 
 var listOfUsers = [];
 var allUsers = []
+
 apiRoutes.post('/search', function (req, res) {
   listOfUsers = []
   var firstPlayer = req.body.firstPlayer;
