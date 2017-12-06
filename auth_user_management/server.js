@@ -271,4 +271,4 @@ app.use('/api', apiRoutes);
 
 // Start the server
 app.listen(port);
-console.log('There will be dragons: http://localhost:' + port);
+console.log('The localhost is: http://localhost:' + port);
