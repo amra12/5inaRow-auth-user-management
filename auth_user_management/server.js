@@ -75,7 +75,7 @@ apiRoutes.post('/login', function (req, res) {
       user.comparePassword(req.body.password, function (err, isMatch) {
         if (isMatch && !err) {
           // if user is found and password is right create a token
-          var token = jwt2.sign(user, config.secret, {
+          var token = jwt2.sign(user.toJSON(), config.secret, {
             expiresIn: 2000
           });
           // return the information including token as JSON
@@ -95,7 +95,7 @@ apiRoutes.get('/checktoken', passport.authenticate('jwt', {session: false}), fun
   if (token) {
     jwt2.verify(token, config.secret, function (err, decoded) {
       if (err) {
-        res.status(489).send({success: false, msg: 'invalid token'});
+        res.status(489).send({success: false, msg: 'Invalid token'});
       }
       else {
         var userName = ''
@@ -137,8 +137,8 @@ apiRoutes.post('/search', function (req, res) {
   var firstPlayer = req.body.firstPlayer;
 
   changeStatus(firstPlayer, 'searching for game', function (err, user) {
-    if (err) {
-      return res.status(502).send({success: false, error: err});
+    if (err || !user) {
+      return res.status(502).send({success: false, error: 'User not found'});
     } else {
       promiseWhile(function () {
         return Date.now() - currentTime < 6000 && listOfUsers.length == 0;
@@ -148,7 +148,7 @@ apiRoutes.post('/search', function (req, res) {
       }).then(function () {
         if ((listOfUsers.length == 0)) {
           changeStatus(firstPlayer, 'nothing', function (err, user) {
-            if (err) res.status(502).json({success: false, msg: err.message})
+            if (err) res.status(502).json({success: false, msg: 'User not found'})
             else {
               return res.status(408).json({success: false, msg: 'Request timeout.'});
             }
@@ -158,10 +158,10 @@ apiRoutes.post('/search', function (req, res) {
           cleanUsers(firstPlayer, allUsers)
           var secondPlayer = listOfUsers[0].name
           changeStatus(firstPlayer, 'playing', function (err, user) {
-            if (err) res.status(502).json({success: false, msg: err.message})
+            if (err) res.status(502).json({success: false, msg: 'User not found'})
             else {
               changeStatus(secondPlayer, 'playing', function (err, user) {
-                if (err) res.status(502).json({success: false, msg: err.message})
+                if (err) res.status(502).json({success: false, msg: 'User not found'})
                 else {
                   return res.status(200).json({success: true, player1: firstPlayer, player2: secondPlayer});
                 }
@@ -224,13 +224,8 @@ function promiseWhile(condition, body) {
 apiRoutes.get('/logout/:name', function (req, res) {
 
   var name = req.params.name;
+  return res.status(200).json({success: true, msg: 'Player has been signed out successfully'});
 
-  // changeStatus(name, 'offline', function (err, user) {
-  //   if (err) res.status(502).json({success: false, msg: err.message})
-  //   else {
-  //     return res.status(200).json({success: true, msg: 'player has been signed out successfully'});
-  //   }
-  // });
 });
 
 apiRoutes.post('/changestatus', function (req, res) {
@@ -240,23 +235,17 @@ apiRoutes.post('/changestatus', function (req, res) {
   var status = req.body.status
 
   changeStatus(firstPlayer, status, function (err, user) {
-    if (err || !user) res.status(502).json({success: false, msg: 'no user found'})
-
+    if (err || !user) res.status(502).json({success: false, msg: 'User not found'})
+    else {
     changeStatus(secondPlayer, status, function (err, user) {
-      if (err || !user) res.status(502).json({success: false, msg: err.message})
+      if (err || !user) res.status(502).json({success: false, msg: 'User not found'})
       else {
-        return res.status(200).json({success: true, msg: 'status has been changed'});
+        return res.status(200).json({success: true, msg: 'Status has been changed'});
       }
     });
+  }
   });
 });
-
-function checkStatus(player, callback) {
-
-  User.find({
-    name: player
-  }, callback);
-}
 
 function changeStatus(name, status, callback) {
 
@@ -271,4 +260,4 @@ app.use('/api', apiRoutes);
 
 // Start the server
 app.listen(port);
-console.log('The localhost is: http://localhost:' + port);
+console.log('There localhost is: http://localhost:' + port);
